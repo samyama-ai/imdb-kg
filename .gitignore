@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# IMDB datasets
+data/*.tsv
+data/*.tsv.gz
+data/*.sgsnap
+
