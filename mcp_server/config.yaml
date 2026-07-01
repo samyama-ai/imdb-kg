@@ -1,0 +1,123 @@
+# IMDB KG — custom MCP tools for samyama-mcp-serve
+#
+# Auto-generated tools handle: search/get/count per label (6),
+# find_connections/traverse per edge type (7), algorithms (3), generic (2).
+# These custom tools add IMDB-specific aggregation queries.
+
+include_node_tools: true
+include_edge_tools: true
+include_vector_tools: true
+include_algorithm_tools: true
+
+custom_tools:
+
+  - name: top_rated_movies
+    description: "Top-rated movies by audience score, filtered to a minimum vote count so obscure titles don't dominate. Returns title, year, rating, and votes."
+    cypher_template: >
+      MATCH (m:Movie)-[:HAS_RATING]->(r:Rating)
+      WHERE r.num_votes >= {min_votes}
+      RETURN m.title AS title, m.year AS year, r.average_rating AS rating, r.num_votes AS votes
+      ORDER BY r.average_rating DESC LIMIT {limit}
+    parameters:
+      - {name: min_votes, type: int, default: 50000}
+      - {name: limit, type: int, default: 20}
+
+  - name: most_prolific_directors
+    description: "Directors with the most highly-rated films. Returns director name, film count, and average rating."
+    cypher_template: >
+      MATCH (p:Person)-[:DIRECTED]->(m:Movie)-[:HAS_RATING]->(r:Rating)
+      WHERE r.average_rating >= {min_rating}
+      RETURN p.name AS director, count(m) AS films, round(avg(r.average_rating) * 10) / 10.0 AS avg_rating
+      ORDER BY films DESC LIMIT {limit}
+    parameters:
+      - {name: min_rating, type: float, default: 7.0}
+      - {name: limit, type: int, default: 20}
+
+  - name: genre_popularity
+    description: "Genres ranked by total audience votes across all movies. Returns genre, movie count, and total votes."
+    cypher_template: >
+      MATCH (m:Movie)-[:HAS_GENRE]->(g:Genre)
+      MATCH (m)-[:HAS_RATING]->(r:Rating)
+      RETURN g.name AS genre, count(m) AS movies, sum(r.num_votes) AS total_votes
+      ORDER BY total_votes DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: director_actor_pairs
+    description: "The most repeated director-actor collaborations — a graph-native multi-hop count. Returns director, actor, and films made together."
+    cypher_template: >
+      MATCH (d:Person)-[:DIRECTED]->(m:Movie)<-[:ACTED_IN]-(a:Person)
+      RETURN d.name AS director, a.name AS actor, count(m) AS films_together
+      ORDER BY films_together DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: busiest_actors_by_director_breadth
+    description: "Actors who have worked with the widest range of distinct directors. Returns actor, distinct director count, and film count."
+    cypher_template: >
+      MATCH (a:Person)-[:ACTED_IN]->(m:Movie)<-[:DIRECTED]-(d:Person)
+      RETURN a.name AS actor, count(DISTINCT d) AS distinct_directors, count(DISTINCT m) AS films
+      ORDER BY distinct_directors DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: decades_of_cinema
+    description: "How movie volume and average quality shifted decade over decade. Returns decade, movie count, and average rating."
+    cypher_template: >
+      MATCH (m:Movie)-[:HAS_RATING]->(r:Rating)
+      WHERE r.num_votes >= {min_votes}
+      RETURN (toInteger(m.year) / 10) * 10 AS decade, count(m) AS movies, round(avg(r.average_rating) * 10) / 10.0 AS avg_rating
+      ORDER BY decade
+    parameters:
+      - {name: min_votes, type: int, default: 1000}
+
+  - name: top_tv_series
+    description: "The TV series audiences kept watching and rating most highly. Returns series title, start year, rating, and votes."
+    cypher_template: >
+      MATCH (s:Series)-[:HAS_RATING]->(r:Rating)
+      WHERE r.num_votes >= {min_votes}
+      RETURN s.title AS series, s.year AS start_year, r.average_rating AS rating, r.num_votes AS votes
+      ORDER BY r.average_rating DESC LIMIT {limit}
+    parameters:
+      - {name: min_votes, type: int, default: 10000}
+      - {name: limit, type: int, default: 20}
+
+  - name: writers_per_director
+    description: "Directors whose films attracted the most distinct writers — a proxy for project complexity. Returns director, distinct writer count, and film count."
+    cypher_template: >
+      MATCH (w:Person)-[:WROTE]->(m:Movie)<-[:DIRECTED]-(d:Person)
+      RETURN d.name AS director, count(DISTINCT w) AS distinct_writers, count(DISTINCT m) AS films
+      ORDER BY distinct_writers DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: person_filmography
+    description: "Full filmography for a person across acting, directing, writing, and producing credits."
+    cypher_template: >
+      MATCH (p:Person)-[r:ACTED_IN|DIRECTED|WROTE|PRODUCED]->(m)
+      WHERE p.name CONTAINS "{person_name}"
+      RETURN p.name AS person, type(r) AS role, m.title AS title, m.year AS year
+      ORDER BY m.year DESC
+    parameters:
+      - {name: person_name, type: str}
+
+  - name: alternate_titles_for_movie
+    description: "All known alternate/regional titles for a specific movie or series."
+    cypher_template: >
+      MATCH (m)-[:HAS_ALTERNATE_TITLE]->(a:AlternateTitle)
+      WHERE m.title CONTAINS "{title}"
+      RETURN m.title AS original_title, a.title AS alternate_title, a.region AS region, a.language AS language
+    parameters:
+      - {name: title, type: str}
+
+  - name: highest_rated_genre_combo
+    description: "Genre pairs that co-occur on the highest-rated movies. Returns the two genres, movie count, and average rating."
+    cypher_template: >
+      MATCH (m:Movie)-[:HAS_GENRE]->(g1:Genre), (m)-[:HAS_GENRE]->(g2:Genre)
+      MATCH (m)-[:HAS_RATING]->(r:Rating)
+      WHERE g1.name < g2.name AND r.num_votes >= {min_votes}
+      RETURN g1.name AS genre1, g2.name AS genre2, count(m) AS movies, round(avg(r.average_rating) * 10) / 10.0 AS avg_rating
+      ORDER BY avg_rating DESC LIMIT {limit}
+    parameters:
+      - {name: min_votes, type: int, default: 5000}
+      - {name: limit, type: int, default: 20}
